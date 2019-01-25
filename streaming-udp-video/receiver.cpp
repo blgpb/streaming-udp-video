@@ -5,6 +5,8 @@
 #include <iostream>
 #include <vector>
 #include <string.h>
+//#include <Winsock.h>
+//#include <ws2tcpip.h>
 #include<ws2tcpip.h>
 #include "opencv2/core/core.hpp"
 #include "opencv2/opencv.hpp"
@@ -119,18 +121,18 @@ VideoCapture::VideoCapture(const bool show_video, const float scale)
 
 
 
-// The name of the window in which all frames will be displayed. If a new frame
-// is displayed, it will replace the previous frame displayed in that window.
-static const std::string kWindowName = "Streaming Video";
+	// The name of the window in which all frames will be displayed. If a new frame
+	// is displayed, it will replace the previous frame displayed in that window.
+	static const std::string kWindowName = "Streaming Video";
 
-// Delays thread execution for this amount of time after a frame is displayed.
-// This prevents the window from being refreshed too often, which can cause
-// display issues.
-constexpr int kDisplayDelayTimeMS = 15;
+	// Delays thread execution for this amount of time after a frame is displayed.
+	// This prevents the window from being refreshed too often, which can cause
+	// display issues.
+	constexpr int kDisplayDelayTimeMS = 15;
 
-// JPEG compression values.
-static const std::string kJPEGExtension = ".jpg";
-constexpr int kJPEGQuality = 90;
+	// JPEG compression values.
+	static const std::string kJPEGExtension = ".jpg";
+	constexpr int kJPEGQuality = 90;
 
 
 VideoFrame::VideoFrame(const std::vector<unsigned char> frame_bytes) {
@@ -143,6 +145,15 @@ void VideoFrame::Display() const {
 		return;
 	}
 	cv::namedWindow(kWindowName, CV_WINDOW_NORMAL);
+
+	SYSTEMTIME sys;	GetLocalTime(&sys);
+
+	std::string hour = std::to_string(sys.wHour);
+	std::string min = std::to_string(sys.wMinute);
+	std::string sec = std::to_string(sys.wSecond);
+	std::string ms = std::to_string(sys.wMilliseconds);
+	std::string text = hour + ":" + min + ":" + sec + "." + ms;
+	cv::putText(frame_image_, text, cv::Point2f(16, 40), cv::FONT_HERSHEY_COMPLEX_SMALL, 1.6, cv::Scalar(0, 0, 255), 2);
 	cv::imshow(kWindowName, frame_image_);
 	cv::waitKey(kDisplayDelayTimeMS);
 }
@@ -273,6 +284,7 @@ int main() {
 		return -1;
 	}
 	std::cout << "Listening on port " << port << "." << std::endl;
+	
 	BasicProtocolData protocol_data;
 	while (true) {  // TODO: break out cleanly when done.
 		protocol_data.UnpackData(socket.GetPacket());
