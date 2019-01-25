@@ -5,8 +5,6 @@
 #include <iostream>
 #include <vector>
 #include <string.h>
-//#include <Winsock.h>
-//#include <ws2tcpip.h>
 #include<ws2tcpip.h>
 #include "opencv2/core/core.hpp"
 #include "opencv2/opencv.hpp"
