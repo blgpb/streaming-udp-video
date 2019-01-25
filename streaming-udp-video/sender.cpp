@@ -170,7 +170,7 @@ constexpr int kDisplayDelayTimeMS = 15;
 
 // JPEG compression values.
 static const std::string kJPEGExtension = ".jpg";
-constexpr int kJPEGQuality = 40;
+constexpr int kJPEGQuality = 60;
 
 
 VideoFrame::VideoFrame(const std::vector<unsigned char> frame_bytes) {
@@ -208,6 +208,21 @@ VideoFrame VideoCapture::GetFrameFromCamera() {
 	if (scale_ < 1.0) {
 		cv::resize(image, image, cv::Size(0, 0), scale_, scale_);
 	}
+
+	//These codes is to offset the time difference betwenn two PCs.(Because it is hard to solve it in a correct way.)
+	SYSTEMTIME sys;	GetLocalTime(&sys);
+	FILETIME ft;
+	int offset_sec = 0;
+	int offset_ms = 0;
+	SystemTimeToFileTime(&sys, &ft);
+	*(__int64 *)(&ft) = *(__int64 *)(&ft) + ((__int64)offset_sec * 1000i64 + (__int64)offset_ms) * 10000i64;
+	FileTimeToSystemTime(&ft, &sys);
+	std::string hour = std::to_string(sys.wHour);
+	std::string min = std::to_string(sys.wMinute);
+	std::string sec = std::to_string(sys.wSecond);
+	std::string ms = std::to_string(sys.wMilliseconds);
+	std::string text = hour + ":" + min + ":" + sec + "." + ms;
+	cv::putText(image, text, cv::Point2f(16, 100), cv::FONT_HERSHEY_COMPLEX_SMALL, 1.6, cv::Scalar(0, 255, 0), 2);
 	VideoFrame video_frame(image);
 	if (show_video_) {
 		video_frame.Display();
@@ -305,12 +320,13 @@ int main() {
 
 	const int port = 5000;
 	
+	//std::string ip_address = "127.0.0.1";  // Localhost
 	std::string ip_address = "192.168.1.7";  // Localhost
-	
+
 	const SenderSocket socket(ip_address, port);
 	std::cout << "Sending to " << ip_address
 		<< " on port " << port << "." << std::endl;
-	VideoCapture video_capture(false, 0.4);
+	VideoCapture video_capture(false, 0.6);
 	BasicProtocolData protocol_data;
 	while (true) {  // TODO: break out cleanly when done.
 		protocol_data.SetImage(video_capture.GetFrameFromCamera());
