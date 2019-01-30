@@ -6,6 +6,7 @@
 #include <vector>
 #include <string.h>
 #include<ws2tcpip.h>
+#include <thread>
 #include "opencv2/core/core.hpp"
 #include "opencv2/opencv.hpp"
 
@@ -127,7 +128,10 @@ public:
 	//
 	// Specify whether or not the video being sent is displayed in a window, and
 	// the scale = (0, 1] which will affect the size of the data.
-	VideoCapture(const bool show_video, const float scale);
+	//The third parameter is used to define which webcamera to be captured.
+	//If the camera in the laptop is chosen, camera = 0
+	//If the additional camera webcamera is chosen, camera = 1
+	VideoCapture(const bool show_video, const float scale, int camera);
 
 	// Captures and returns a frame from the available video camera.
 	//
@@ -151,8 +155,8 @@ private:
 	const bool show_video_;
 };
 
-VideoCapture::VideoCapture(const bool show_video, const float scale)
-	: show_video_(show_video), scale_(scale), capture_(cv::VideoCapture(0)) {
+VideoCapture::VideoCapture(const bool show_video, const float scale, int camera)
+	: show_video_(show_video), scale_(scale), capture_(cv::VideoCapture(camera)) {
 
 	// TODO: Verify that the scale is in the appropriate range.
 }
@@ -212,8 +216,8 @@ VideoFrame VideoCapture::GetFrameFromCamera() {
 	//These codes is to offset the time difference betwenn two PCs.(Because it is hard to solve it in a correct way.)
 	SYSTEMTIME sys;	GetLocalTime(&sys);
 	FILETIME ft;
-	int offset_sec = 0;
-	int offset_ms = 0;
+	int offset_sec = -2;
+	int offset_ms = 10;
 	SystemTimeToFileTime(&sys, &ft);
 	*(__int64 *)(&ft) = *(__int64 *)(&ft) + ((__int64)offset_sec * 1000i64 + (__int64)offset_ms) * 10000i64;
 	FileTimeToSystemTime(&ft, &sys);
@@ -309,28 +313,95 @@ const std::vector<unsigned char> ReceiverSocket::GetPacket() const {
 	return data;
 }
 
-int main() {
+void send1() {
 
 	WORD socketVersion = MAKEWORD(2, 2);
 	WSADATA wsaData;
 	if (WSAStartup(socketVersion, &wsaData) != 0)
 	{
-		return 0;
+		exit(0);
 	}
 
-	const int port = 5000;
+	const int port = 6000;
 	
 	//std::string ip_address = "127.0.0.1";  // Localhost
-	std::string ip_address = "192.168.1.7";  // Localhost
+	std::string ip_address = "192.168.43.168";
 
 	const SenderSocket socket(ip_address, port);
 	std::cout << "Sending to " << ip_address
 		<< " on port " << port << "." << std::endl;
-	VideoCapture video_capture(false, 0.6);
+	VideoCapture video_capture(false, 0.6, 0);
 	BasicProtocolData protocol_data;
 	while (true) {  // TODO: break out cleanly when done.
 		protocol_data.SetImage(video_capture.GetFrameFromCamera());
 		socket.SendPacket(protocol_data.PackageData());
 	}
+}
+
+void send2() {
+
+	WORD socketVersion = MAKEWORD(2, 2);
+	WSADATA wsaData;
+	if (WSAStartup(socketVersion, &wsaData) != 0)
+	{
+		exit(0);
+	}
+
+	const int port = 5000;
+
+	//std::string ip_address = "127.0.0.1";  // Localhost
+	std::string ip_address = "192.168.43.168";
+
+	const SenderSocket socket(ip_address, port);
+	std::cout << "Sending to " << ip_address
+		<< " on port " << port << "." << std::endl;
+	VideoCapture video_capture(false, 0.6, 1);
+	BasicProtocolData protocol_data;
+	while (true) {  // TODO: break out cleanly when done.
+		protocol_data.SetImage(video_capture.GetFrameFromCamera());
+		socket.SendPacket(protocol_data.PackageData());
+	}
+}
+
+void send3() {
+
+	WORD socketVersion = MAKEWORD(2, 2);
+	WSADATA wsaData;
+	if (WSAStartup(socketVersion, &wsaData) != 0)
+	{
+		exit(0);
+	}
+
+	const int port = 4000;
+
+	//std::string ip_address = "127.0.0.1";  // Localhost
+	std::string ip_address = "192.168.1.3";
+
+	const SenderSocket socket(ip_address, port);
+	std::cout << "Sending to " << ip_address
+		<< " on port " << port << "." << std::endl;
+	VideoCapture video_capture(false, 0.6, 2);
+	BasicProtocolData protocol_data;
+	while (true) {  // TODO: break out cleanly when done.
+		protocol_data.SetImage(video_capture.GetFrameFromCamera());
+		socket.SendPacket(protocol_data.PackageData());
+	}
+}
+
+int main()
+{
+	//系统加入了多线程功能，可以同时调用不同的摄像头给指定的IP和端口发送视频
+	//每个线程发送独立的视频数据，互不干扰
+	//由于带参数的send写入下列函数会发生错误，故分别定义了send1函数 send2函数 send3函数
+	std::thread send1(send1);
+	std::thread send2(send2);
+	std::thread send3(send3);
+
+	send1.detach();
+	send2.detach();
+	send3.detach();
+
+	system("pause");
+
 	return 0;
 }
