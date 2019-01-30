@@ -5,8 +5,7 @@
 #include <iostream>
 #include <vector>
 #include <string.h>
-//#include <Winsock.h>
-//#include <ws2tcpip.h>
+#include <thread>
 #include<ws2tcpip.h>
 #include "opencv2/core/core.hpp"
 #include "opencv2/opencv.hpp"
@@ -43,7 +42,7 @@ public:
 
 	// Waits for the next packet on the given port, and returns vector of bytes
 	// (stored as unsigned chars) that contains the raw packet data.
-	const std::vector<unsigned char> GetPacket() const;
+	const std::vector<unsigned char> GetPacket(std::string kWindowName) const;
 
 private:
 	// This buffer will be used to collect incoming packet data. It is only used
@@ -71,7 +70,7 @@ public:
 	// Uses the underlying video/image/gui library to display the frame on the
 	// user's screen. Only one frame can be displayed at a time, as all frames
 	// will share the same GUI window.
-	void Display() const;
+	void Display(std::string kWindowName);
 
 	// Returns the raw byte representation of the given video frame. Singe image
 	// compression to JPEG is also handled here to minimize the frame size.
@@ -121,29 +120,32 @@ VideoCapture::VideoCapture(const bool show_video, const float scale)
 
 
 
-	// The name of the window in which all frames will be displayed. If a new frame
-	// is displayed, it will replace the previous frame displayed in that window.
-	static const std::string kWindowName = "Streaming Video";
+// The name of the window in which all frames will be displayed. If a new frame
+// is displayed, it will replace the previous frame displayed in that window.
+std::string kWindowName_id1 = "Streaming Video";
+std::string kWindowName_id2 = "Streaming Video";
+std::string kWindowName_id3 = "Streaming Video";
 
-	// Delays thread execution for this amount of time after a frame is displayed.
-	// This prevents the window from being refreshed too often, which can cause
-	// display issues.
-	constexpr int kDisplayDelayTimeMS = 15;
+// Delays thread execution for this amount of time after a frame is displayed.
+// This prevents the window from being refreshed too often, which can cause
+// display issues.
+constexpr int kDisplayDelayTimeMS = 15;
 
-	// JPEG compression values.
-	static const std::string kJPEGExtension = ".jpg";
-	constexpr int kJPEGQuality = 90;
+// JPEG compression values.
+static const std::string kJPEGExtension = ".jpg";
+constexpr int kJPEGQuality = 90;
 
 
 VideoFrame::VideoFrame(const std::vector<unsigned char> frame_bytes) {
 	frame_image_ = cv::imdecode(frame_bytes, cv::IMREAD_COLOR);
 }
 
-void VideoFrame::Display() const {
+void VideoFrame::Display(std::string kWindowName)  {
 	// Do nothing for empty images.
 	if (frame_image_.empty()) {
 		return;
 	}
+
 	cv::namedWindow(kWindowName, CV_WINDOW_NORMAL);
 
 	SYSTEMTIME sys;	GetLocalTime(&sys);
@@ -166,24 +168,6 @@ std::vector<unsigned char> VideoFrame::GetJPEG() const {
 	std::vector<unsigned char> data_buffer;
 	cv::imencode(kJPEGExtension, frame_image_, data_buffer, compression_params);
 	return data_buffer;
-}
-
-VideoFrame VideoCapture::GetFrameFromCamera() {
-	if (!capture_.isOpened()) {
-		std::cerr << "Could not get frame. Camera not available." << std::endl;
-		return VideoFrame();
-	}
-	cv::Mat image;
-	capture_ >> image;
-	// If the image is being downsampled, resize it first.
-	if (scale_ < 1.0) {
-		cv::resize(image, image, cv::Size(0, 0), scale_, scale_);
-	}
-	VideoFrame video_frame(image);
-	if (show_video_) {
-		video_frame.Display();
-	}
-	return video_frame;
 }
 
 class BasicProtocolData : public ProtocolData {
@@ -214,8 +198,14 @@ std::vector<unsigned char> BasicProtocolData::PackageData() const {
 
 void BasicProtocolData::UnpackData(
 	const std::vector<unsigned char>& raw_bytes) {
-
-	video_frame_ = VideoFrame(raw_bytes);
+	if (!raw_bytes.empty())
+	{
+		video_frame_ = VideoFrame(raw_bytes);
+	}
+	else
+	{
+		video_frame_ = VideoFrame();
+	}
 }
 
 ReceiverSocket::ReceiverSocket(const int port_number) : port_(port_number) {
@@ -227,6 +217,20 @@ const bool ReceiverSocket::BindSocketToListen() const {
 		std::cerr << "Binding failed. Socket was not initialized." << std::endl;
 		return false;
 	}
+
+	//设置为非阻塞模式  
+	int imode = 1;
+	int rev = 0;
+
+	rev = ioctlsocket(socket_handle_, FIONBIO, (u_long *)&imode);//设置为非阻塞模式
+	if (rev == SOCKET_ERROR)
+	{
+		printf("ioctlsocket failed!");
+		closesocket(socket_handle_);
+		WSACleanup();
+		exit(-1);
+	}
+
 	// Bind socket's address to INADDR_ANY because it's only receiving data, and
 	// does not need a valid address.
 	sockaddr_in socket_addr;
@@ -243,53 +247,101 @@ const bool ReceiverSocket::BindSocketToListen() const {
 		std::cerr << "Binding failed. Could not bind the socket." << std::endl;
 		return false;
 	}
+
 	return true;
 }
 
-const std::vector<unsigned char> ReceiverSocket::GetPacket() const {
+const std::vector<unsigned char> ReceiverSocket::GetPacket(std::string kWindowName) const {
 	// Get the data from the next incoming packet.
-	sockaddr_in remote_addr;
-	socklen_t addrlen = sizeof(remote_addr);
-	const int num_bytes = recvfrom(
-		socket_handle_,
-		(char*)(buffer_),
-		kMaxPacketBufferSize,
-		0,
-		(sockaddr*)(&remote_addr),
-		&addrlen);
-	// Copy the data (i	f any) into the data vector.
-	std::vector<unsigned char> data;
+	fd_set rfd;                       //描述符集 这个将用来测试有没有一个可用的连接
+	struct timeval timeout;			 //设置select等待时间
+	timeout.tv_sec = 1;               //select需要用到这个
+	timeout.tv_usec = 0;              //timeout设置为0，可以理解为非阻塞
+	int SelectRcv;
 
-	if (num_bytes > 0) {
-		data.insert(data.end(), &buffer_[0], &buffer_[num_bytes]);
+	//UDP数据接收
+	FD_ZERO(&rfd);					//总是这样先清空一个描述符集
+	FD_SET(socket_handle_, &rfd);		//把sock放入要测试的描述符集
+	SelectRcv = select(socket_handle_ + 1, &rfd, 0, 0, &timeout); //检查该套接字是否可读
+	if (FD_ISSET(socket_handle_, &rfd))//如果套接字句柄还在fd_set里，说明客户端已经有connect的请求发过来了，马上可以accept成功
+	{
+		sockaddr_in remote_addr;
+		socklen_t addrlen = sizeof(remote_addr);
+		const int num_bytes = recvfrom(
+			socket_handle_,
+			(char*)(buffer_),
+			kMaxPacketBufferSize,
+			0,
+			(sockaddr*)(&remote_addr),
+			&addrlen);
+		// Copy the data (i	f any) into the data vector.
+		std::vector<unsigned char> data;
+
+		if (num_bytes > 0) {
+			data.insert(data.end(), &buffer_[0], &buffer_[num_bytes]);
+		}
+		return data;
 	}
-	return data;
+		else
+		{
+			cv::Mat picture = cv::imread("our_team.jpg");
+			cv::namedWindow(kWindowName, CV_WINDOW_NORMAL);
+
+			cv::imshow(kWindowName, picture);
+			cv::waitKey(kDisplayDelayTimeMS);
+
+			std::vector<unsigned char> data;
+
+			data.clear();
+			//frame_image_.clear();
+
+			return data;
+		}
+	
+
 }
 
-int main() {
-
-	const int port = 5000;
+//输入参数：监听的端口号 OpenCV显示窗口的序号
+void receive(int port, std::string kWindowName_id) {
 
 	WSADATA wsaData;
 	WORD sockVersion = MAKEWORD(2, 2);
 	if (WSAStartup(sockVersion, &wsaData) != 0)
 	{
-		return 0;
+		exit(0);
 	}
 
 	const ReceiverSocket socket(port);
 	if (!socket.BindSocketToListen()) {
 		std::cerr << "Could not bind socket." << std::endl;
 		//system("pause");
-		return -1;
+		exit(-1);
 	}
 	std::cout << "Listening on port " << port << "." << std::endl;
 	
 	BasicProtocolData protocol_data;
 	while (true) {  // TODO: break out cleanly when done.
-		protocol_data.UnpackData(socket.GetPacket());
-		protocol_data.GetImage().Display();
+		protocol_data.UnpackData(socket.GetPacket(kWindowName_id));
+		protocol_data.GetImage().Display(kWindowName_id);
 	}
+
+}
+
+int main()
+{
+	//为了解决opencv显示窗口名的问题
+	kWindowName_id1 = kWindowName_id1 + " " + std::to_string(0);
+	std::thread receive1(receive, 4000, kWindowName_id1);
+	kWindowName_id2 = kWindowName_id2 + " " + std::to_string(1);
+	std::thread receive2(receive, 5000, kWindowName_id2);
+	kWindowName_id3 = kWindowName_id3 + " " + std::to_string(2);
+	std::thread receive3(receive, 6000, kWindowName_id3);
+	//加入了多线程支持，可以监听并接收从不同端口发送来的视频数据
+	receive1.detach();
+	receive2.detach();
+	receive3.detach();
+	//此外，将UDP从默认的阻塞模式改为非阻塞模式，当没有接收到新的视频数据时，将显示默认的壁纸图像；当视频发送重新连接后，可以实时切换到视频数据
+	system("pause");
 
 	return 0;
 }
